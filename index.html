@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#070b14;color:#fff;font-family:Roboto,"Amazon Ember","Helvetica Neue",Arial,sans-serif}
+body{background:-webkit-linear-gradient(top,#13233f 0%,#070b14 70%);background:linear-gradient(to bottom,#13233f 0%,#070b14 70%)}
+#app{height:100%;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;padding:0 64px;box-sizing:border-box}
+#top{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:space-between;justify-content:space-between;height:96px;-webkit-flex-shrink:0;flex-shrink:0}
+#nav span{display:inline-block;font-size:22px;padding:8px 22px;border-radius:999px;background:rgba(255,255,255,.14);margin-right:12px}
+#clock{font-size:24px;color:#c8d3e8}
+#hero{height:200px;-webkit-flex-shrink:0;flex-shrink:0;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;-webkit-justify-content:flex-end;justify-content:flex-end;padding-bottom:28px}
+#heroTitle{font-size:54px;font-weight:500;line-height:1.1}
+#heroSub{font-size:22px;color:#9fb0cf;margin-top:10px}
+#rowLabel{font-size:22px;color:#c8d3e8;margin-bottom:14px;-webkit-flex-shrink:0;flex-shrink:0}
+#scroller{-webkit-flex:1;flex:1;overflow:hidden;position:relative}
+#grid{padding:20px 0 0 12px;-webkit-transition:-webkit-transform .2s;transition:transform .2s}
+.secT{font-size:24px;color:#c8d3e8;margin:0 0 22px 4px}
+.row{display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap}
+.tile{width:264px;height:150px;margin:0 28px 36px 0;border-radius:14px;position:relative;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;-webkit-flex-direction:column;flex-direction:column;-webkit-transition:-webkit-transform .15s,box-shadow .15s;transition:transform .15s,box-shadow .15s}
+.tile .mark{font-size:54px;font-weight:700;line-height:1}
+.tile .name{font-size:22px;margin-top:10px;font-weight:500}
+.tile.on{-webkit-transform:scale(1.1);transform:scale(1.1);box-shadow:0 0 0 4px #fff,0 18px 36px rgba(0,0,0,.55);z-index:2}
+#notice{position:fixed;left:0;top:0;right:0;bottom:0;display:none;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;-webkit-flex-direction:column;flex-direction:column;background:#070b14;text-align:center;z-index:10}
+#notice h1{font-size:46px;font-weight:500;margin:0 0 14px}
+#notice p{font-size:24px;color:#9fb0cf;margin:0}
+#toast{position:fixed;bottom:48px;left:50%;-webkit-transform:translateX(-50%);transform:translateX(-50%);background:rgba(255,255,255,.16);padding:12px 28px;border-radius:999px;font-size:22px;display:none;z-index:9}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="top"><div id="nav"><span>Home</span></div><div id="clock"></div></div>
+<div id="hero"><div id="heroTitle"></div><div id="heroSub"></div></div>
+<div id="scroller"><div id="grid"></div></div>
+</div>
+<div id="notice"><h1 id="nTitle"></h1><p id="nMsg"></p></div>
+<div id="toast"></div>
+​<script>
+/* ES5 only: runs on old Fire OS 5 WebView */
+(function () {
+// === SET THIS ONCE: your raw config.json link ===
+var CONFIG_URL = "https://raw.githubusercontent.com/IamPratham28/Tv-config/refs/heads/main/config.json";
+var PING_TIMEOUT = 4000;
+var COLORS = ["#2d5bd1", "#c2410c", "#0f766e", "#7c3aed", "#be185d", "#4d7c0f"];
+// Built-in icons: set "icon" in config.json. Unknown names fall back to the first letter.
+var ICONS = {
+cricket: '<svg width="60" height="60" viewBox="0 0 64 64"><rect x="8" y="30" width="30" height="9" rx="3" transform="rotate(-45 23 34)" fill="#f5d9a8"/><rect x="3" y="45" width="14" height="5" rx="2" transform="rotate(-45 10 47)" fill="#8a5a2b"/><circle cx="45" cy="41" r="12" fill="#fff"/><path d="M37 36 Q45 41 37 47 M53 35 Q45 41 53 47" stroke="#c2410c" stroke-width="2.5" fill="none"/></svg>',
+youtube: '<svg width="60" height="60" viewBox="0 0 64 64"><rect x="4" y="14" width="56" height="36" rx="10" fill="#fff"/><path d="M26 23 L26 41 L42 32 Z" fill="#e11d1d"/></svg>',
+film: '<svg width="60" height="60" viewBox="0 0 64 64"><rect x="8" y="10" width="48" height="44" rx="6" fill="#fff"/><rect x="14" y="10" width="6" height="44" fill="#0f766e"/><rect x="44" y="10" width="6" height="44" fill="#0f766e"/><path d="M27 25 L27 39 L39 32 Z" fill="#0f766e"/></svg>'
+};
+​var tiles = [], idx = 0, busy = false, retryMode = false;
+function $(id) { return document.getElementById(id); }
+​/* ---------- storage (cached config for offline starts) ---------- */
+function saveCache(c) { try { localStorage.setItem("cfg", JSON.stringify(c)); } catch (e) {} }
+function readCache() { try { return JSON.parse(localStorage.getItem("cfg")); } catch (e) { return null; } }
+​/* ---------- config ---------- */
+function loadConfig(done) {
+var finished = false;
+function fail() {
+if (finished) return; finished = true;
+done(readCache(), true);
+}
+var x = new XMLHttpRequest();
+x.open("GET", CONFIG_URL + "?t=" + new Date().getTime(), true);
+x.timeout = 8000;
+x.onload = function () {
+if (x.status === 200) {
+try {
+var c = JSON.parse(x.responseText);
+if (finished) return; finished = true;
+saveCache(c); done(c, false); return;
+} catch (e) {}
+}
+fail();
+};
+x.onerror = fail; x.ontimeout = fail;
+x.send();
+}
+​/* ---------- health check: tiny favicon ping, first working URL wins ---------- */
+function ping(url, cb) {
+var a = document.createElement("a"); a.href = url;
+var img = new Image(), done = false;
+function end(ok) { if (done) return; done = true; img.onload = img.onerror = null; cb(ok); }
+img.onload = function () { end(true); };
+img.onerror = function () { end(false); };
+setTimeout(function () { end(false); }, PING_TIMEOUT);
+img.src = a.protocol + "//" + a.host + "/favicon.ico?t=" + new Date().getTime();
+}
+​function toast(msg) { var t = $("toast"); t.textContent = msg; t.style.display = "block"; }
+function untoast() { $("toast").style.display = "none"; }
+​function openTile(tile) {
+if (busy) return;
+var urls = tile.urls || [];
+if (!urls.length) return;
+busy = true; toast("Opening " + tile.title + "…");
+var i = 0;
+(function next() {
+if (i >= urls.length) { go(urls[0]); return; }   // nothing answered: try primary anyway
+var u = urls[i++];
+ping(u, function (ok) { if (ok) go(u); else next(); });
+})();
+function go(u) { window.location.href = u; setTimeout(function () { busy = false; untoast(); }, 3000); }
+}
+​/* ---------- render ---------- */
+function showNotice(title, msg) {
+$("nTitle").textContent = title; $("nMsg").textContent = msg;
+$("notice").style.display = "-webkit-flex"; $("notice").style.display = "flex";
+}
+function render(cfg, offline) {
+if (!cfg) { retryMode = true; showNotice("No connection", "Check your network, then press Select to retry."); return; }
+if (cfg.maintenance && cfg.maintenance.enabled) {
+retryMode = true; showNotice("Maintenance", (cfg.maintenance.message || "Back soon.") + " Press Select to refresh."); return;
+}
+retryMode = false; $("notice").style.display = "none";
+var grid = $("grid"); grid.innerHTML = ""; tiles = [];
+var secs = cfg.sections || [{ title: "Your apps", tiles: cfg.tiles || [] }];
+var count = 0;
+for (var s = 0; s < secs.length; s++) {
+var list = secs[s].tiles || [];
+if (!list.length) continue;
+var h = document.createElement("div"); h.className = "secT"; h.textContent = secs[s].title || "";
+var row = document.createElement("div"); row.className = "row";
+grid.appendChild(h); grid.appendChild(row);
+for (var i = 0; i < list.length; i++) {
+var t = list[i], el = document.createElement("div");
+el.className = "tile"; el.style.background = t.color || COLORS[count % COLORS.length];
+var m = document.createElement("div"); m.className = "mark";
+if (t.icon && ICONS[t.icon]) m.innerHTML = ICONS[t.icon];
+else m.textContent = (t.title || "?").charAt(0).toUpperCase();
+var n = document.createElement("div"); n.className = "name"; n.textContent = t.title || "";
+el.appendChild(m); el.appendChild(n); row.appendChild(el);
+tiles.push({ el: el, data: t });
+count++;
+}
+}
+if (offline) toast("Offline: showing saved list");
+setTimeout(untoast, 3000);
+idx = 0; focus(0);
+}
+​/* ---------- focus engine ---------- */
+function focus(i) {
+if (!tiles.length) return;
+if (tiles[idx]) tiles[idx].el.className = "tile";
+idx = i; var t = tiles[idx];
+t.el.className = "tile on";
+$("heroTitle").textContent = t.data.title || "";
+$("heroSub").textContent = t.data.subtitle || "Press Select to open";
+var sc = $("scroller"), g = $("grid");
+var top = t.el.offsetTop, bottom = top + t.el.offsetHeight + 40;
+var cur = g._y || 0, vis = sc.clientHeight;
+if (top + cur < 0) cur = -top + 10;
+else if (bottom + cur > vis) cur = vis - bottom;
+g._y = cur;
+g.style.webkitTransform = g.style.transform = "translateY(" + cur + "px)";
+}
+​function move(dir) {
+if (!tiles.length) return;
+var c = tiles[idx].el.getBoundingClientRect();
+var cx = c.left + c.width / 2, cy = c.top + c.height / 2, best = -1, score = 1e9;
+for (var i = 0; i < tiles.length; i++) {
+if (i === idx) continue;
+var r = tiles[i].el.getBoundingClientRect();
+var dx = (r.left + r.width / 2) - cx, dy = (r.top + r.height / 2) - cy, p, q;
+if (dir === "left")  { p = -dx; q = Math.abs(dy); }
+if (dir === "right") { p = dx;  q = Math.abs(dy); }
+if (dir === "up")    { p = -dy; q = Math.abs(dx); }
+if (dir === "down")  { p = dy;  q = Math.abs(dx); }
+if (p < 20) continue;
+var s = p + q * 3;
+if (s < score) { score = s; best = i; }
+}
+if (best > -1) focus(best);
+}
+​document.onkeydown = function (e) {
+var k = e.keyCode, handled = true;
+if (k === 37) move("left");
+else if (k === 39) move("right");
+else if (k === 38) move("up");
+else if (k === 40) move("down");
+else if (k === 13 || k === 23 || k === 66) {
+if (retryMode) start(); else if (tiles[idx]) openTile(tiles[idx].data);
+} else handled = false;
+if (handled) e.preventDefault();
+};
+​/* ---------- clock ---------- */
+function tick() {
+var d = new Date(), h = d.getHours(), m = d.getMinutes(), ap = h >= 12 ? "PM" : "AM";
+h = h % 12; if (h === 0) h = 12;
+$("clock").textContent = h + ":" + (m < 10 ? "0" : "") + m + " " + ap;
+}
+tick(); setInterval(tick, 30000);
+​/* ---------- boot ---------- */
+function start() { loadConfig(render); }
+// refresh config when returning from a stream (back button)
+window.onpageshow = function () { busy = false; untoast(); start(); };
+start();
+})();
+</script>
+</body>
+</html>
